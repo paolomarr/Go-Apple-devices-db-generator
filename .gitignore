@@ -1,0 +1,10 @@
+build/
+node_modules/
+package-lock.json
+appledata.sqlite
+docker/go/theiphonewikiparser
+.DS_Store
+target/
+.vscode/
+.m2
+go/appledata/appledata

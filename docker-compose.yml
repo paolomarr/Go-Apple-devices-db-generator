@@ -1,0 +1,7 @@
+version: "3.3" # version supported by the current server
+
+services:
+  run:
+    build: .
+    volumes:
+    - ${PWD}/build/:/usr/src/app/build
