@@ -71,7 +71,7 @@ func main() {
 	}
 	dbtools.DBInit(dbpath)
 	// cpus, err := theiphonewiki.ParseProcessorsPages(localHTTTPClient())
-	cpus, err := wikipedia.ParseSystemOnChips()
+	cpus, err := wikipedia.ParseSystemOnChips(localHTTTPClient())
 	if err != nil {
 		log.Fatalf("Unable to parse CPUs from theiphonewiki page")
 	}
