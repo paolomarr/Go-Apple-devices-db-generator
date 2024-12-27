@@ -1,4 +1,4 @@
-The iPhone Wiki parser
+Apple data wiki parser
 ===
 A tool to fetch Apple devices data from Wikipedia and/or theiphonewiki.com[^1] and
 shelve it into a SQLite database

@@ -4,6 +4,7 @@ import (
 	"appledata/Packages/version"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,36 +15,53 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var ListOfIphoneModelsURL string = "https://en.wikipedia.org/wiki/List_of_iPhone_models"
-var IOSVersionHistoryURL string = "https://en.wikipedia.org/wiki/IOS_version_history"
-var IOSVersionPages []string = []string{
-	"https://en.wikipedia.org/wiki/IPhone_OS_2",
-	"https://en.wikipedia.org/wiki/IPhone_OS_3",
-	"https://en.wikipedia.org/wiki/IPhone_OS_4",
-	"https://en.wikipedia.org/wiki/IPhone_OS_5",
-	"https://en.wikipedia.org/wiki/IPhone_OS_6",
-	"https://en.wikipedia.org/wiki/IPhone_OS_7",
-	"https://en.wikipedia.org/wiki/IPhone_OS_8",
-	"https://en.wikipedia.org/wiki/IPhone_OS_9",
-	"https://en.wikipedia.org/wiki/IPhone_OS_10",
-	"https://en.wikipedia.org/wiki/IPhone_OS_11",
-	"https://en.wikipedia.org/wiki/IPhone_OS_12",
-	"https://en.wikipedia.org/wiki/IPhone_OS_13",
-	"https://en.wikipedia.org/wiki/IPhone_OS_14",
-	"https://en.wikipedia.org/wiki/IPhone_OS_15",
-	"https://en.wikipedia.org/wiki/IPhone_OS_16",
-	"https://en.wikipedia.org/wiki/IOS_17",
+const DEFAULT_WIKISTR = "https://en.wikipedia.org/wiki"
+
+func WikiBase() string {
+	wikistr, exists := os.LookupEnv("WIKI_BASE")
+	if !exists {
+		wikistr = DEFAULT_WIKISTR
+	}
+	return wikistr
+}
+func WikiPageURL(urlstr string) string {
+	trailingSlash := regexp.MustCompile(`/$`)
+	leadingSlash := regexp.MustCompile(`^/`)
+	base := trailingSlash.ReplaceAllString(WikiBase(), "")
+	path := leadingSlash.ReplaceAllString(urlstr, "")
+
+	return fmt.Sprintf("%s/%s", base, path)
 }
 
-var IOSSystemOnChipsPage string = "https://en.wikipedia.org/wiki/List_of_iPhone_models#iPhone_systems-on-chips"
+var WikiBaseUrl = WikiBase()
+
+var IOSVersionPages []string = []string{
+	"IPhone_OS_2",
+	"IPhone_OS_3",
+	"IPhone_OS_4",
+	"IPhone_OS_5",
+	"IPhone_OS_6",
+	"IPhone_OS_7",
+	"IPhone_OS_8",
+	"IPhone_OS_9",
+	"IPhone_OS_10",
+	"IPhone_OS_11",
+	"IPhone_OS_12",
+	"IPhone_OS_13",
+	"IPhone_OS_14",
+	"IPhone_OS_15",
+	"IPhone_OS_16",
+	"IOS_17",
+	"IOS_18",
+}
 
 type TableCPU struct {
 	Label            string `header:"System-on-chip"`
 	Ram              string `header:"RAM"`
-	RamType          string `header:"RAM Type"`
-	StorageType      string `header:"Storage Type"`
+	RamType          string `header:"RAM type"`
+	StorageType      string `header:"Storage type"`
 	ModelName        string `header:"Model"`
-	LatestIosVersion string `header:"Highest Supported iOS"`
+	LatestIosVersion string `header:"Highest supported iOS"`
 }
 type Device struct {
 	Codenames []string
@@ -60,10 +78,20 @@ type Cpu struct {
 func (d Device) String() string {
 	return fmt.Sprintf("%s (%s) [%s] - Support: [%s, %s]", d.Modelname, strings.Join(d.Codenames, "; "), d.Cpu, d.MinOS.String(), d.MaxOS.String())
 }
-func ParseSystemOnChips() ([]Cpu, error) {
-	rawcpus, error := htmltable.NewSliceFromURL[TableCPU](IOSSystemOnChipsPage)
+func ParseSystemOnChips(client *http.Client) ([]Cpu, error) {
+	var IOSSystemOnChipsPage string = WikiPageURL("List_of_iPhone_models#iPhone_systems-on-chips")
+	res, err := client.Get(IOSSystemOnChipsPage)
+	if err != nil {
+		log.Fatalf("[ParseSystemOnChips] %s", err.Error())
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		log.Fatalf("[ParseSystemOnChips] %s status code error: %d %s", res.Request.URL.String(), res.StatusCode, res.Status)
+	}
+
+	rawcpus, error := htmltable.NewSliceFromResponse[TableCPU](res)
 	if error != nil {
-		log.Fatal("[ParseSystemOnChips] %s", error.Error())
+		log.Fatalf("[ParseSystemOnChips][NewSliceFromResponse] %s", error.Error())
 		return nil, error
 	}
 	var out []Cpu
@@ -83,10 +111,11 @@ func ParseSystemOnChips() ([]Cpu, error) {
 	return out, nil
 }
 func ParseiOSVersionHistory(client *http.Client) []version.OSVersion {
+	var IOSVersionHistoryURL string = WikiPageURL("wiki/IOS_version_history")
 	log.Debugf("[ParseiOSVersionHistory] Fetching data (GET) from %s", IOSVersionHistoryURL)
 	res, err := client.Get(IOSVersionHistoryURL)
 	if err != nil {
-		log.Fatal("[ParseiOSVersionHistory] %s", err.Error())
+		log.Fatalf("[ParseiOSVersionHistory] %s", err.Error())
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
@@ -168,12 +197,14 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 }
 func ParseiOSVersionHistory2(client *http.Client) []version.OSVersion {
 	var versions []version.OSVersion
-	for _, page := range IOSVersionPages {
+	for _, pagepath := range IOSVersionPages {
+		page := WikiPageURL(pagepath)
 		versions = append(versions, ParseSingleIOSVersionPage(page, client)...)
 	}
 	return versions
 }
 func ParseListOfIphoneModelsTable(client *http.Client) []Device {
+	var ListOfIphoneModelsURL string = WikiPageURL("/List_of_iPhone_models")
 	res, err := client.Get(ListOfIphoneModelsURL)
 	if err != nil {
 		log.Fatal("[ParseListOfIphoneModelsTable] %s", err.Error())
