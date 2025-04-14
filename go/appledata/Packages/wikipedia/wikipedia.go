@@ -1,7 +1,7 @@
 package wikipedia
 
 import (
-	"appledata/packages/version"
+	"appledata/Packages/version"
 	"fmt"
 	"net/http"
 	"os"
