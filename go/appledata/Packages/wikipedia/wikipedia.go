@@ -1,8 +1,8 @@
 package wikipedia
 
 import (
-	"appledata/Packages/version"
 	"fmt"
+	"iosdata/Packages/version"
 	"net/http"
 	"os"
 	"regexp"
@@ -221,24 +221,27 @@ func ParseListOfIphoneModelsTable(client *http.Client) []Device {
 		var gDevices []Device
 		doc.Find(".wikitable").Each(func(tableidx int, table *goquery.Selection) {
 			var devices []Device
-			log.Tracef("[ParseListOfIphoneModelsTable] Parsing .wikitable %d", tableidx)
+			log.Debugf("[ParseListOfIphoneModelsTable] Parsing .wikitable %d", tableidx)
 			rows := table.Find("tr")
 			var modelsRow *goquery.Selection
 			firstRowFirstCellText := strings.TrimSpace(rows.First().Find("th").First().Text())
-			if firstRowFirstCellText == "Model" {
+			firstRowSecondCellText := strings.TrimSpace(rows.First().Find("th").Eq(1).Text())
+			if firstRowFirstCellText == "Model" && strings.HasPrefix(firstRowSecondCellText, "iPhone") {
 				modelsRow = rows.First()
 				modelsRow.Find("th").Each(func(colidx int, col *goquery.Selection) {
 					if colidx == 0 {
 						return
 					}
-					log.Tracef("Appending model %s", col.Text())
+					log.Debugf("Appending model %s", col.Text())
 					devices = append(devices, Device{Modelname: strings.TrimSpace(col.Text())})
 				})
 				for rowidx := 1; rowidx < rows.Length(); rowidx++ {
 					row := rows.Eq(rowidx)
 					firstcoltext := strings.TrimSpace(row.Find("th").Eq(0).Text())
 					secondcoltext := strings.TrimSpace(row.Find("th").Eq(1).Text())
-					if firstcoltext == "Processor" && secondcoltext == "Chip" {
+					thirdcoltext := strings.TrimSpace(row.Find("th").Eq(2).Text())
+					if strings.EqualFold(firstcoltext, "Performance") && strings.EqualFold(secondcoltext, "Chip") && strings.EqualFold(thirdcoltext, "Chip Name") {
+						log.Debugf("[ParseListOfIphoneModelsTable] tabel[%d] Parsing CPU info raw", tableidx)
 						modelidx := 0
 						row.Find("td").Each(func(tdidx int, td *goquery.Selection) {
 							cellRawContent := td.Text()
@@ -258,7 +261,8 @@ func ParseListOfIphoneModelsTable(client *http.Client) []Device {
 						if modelidx != len(devices) {
 							log.Errorf("Found CPU cells count (%d) doesn't match devices count (%d). Last device added: %s", modelidx, len(devices), devices[modelidx-1].String())
 						}
-					} else if firstcoltext == "Hardware strings" {
+					} else if strings.EqualFold(firstcoltext, "Basic Info") && strings.EqualFold(secondcoltext, "Hardware strings") {
+						log.Debugf("[ParseListOfIphoneModelsTable] table[%d] Parsing hardware strings row", tableidx)
 						modelidx := 0
 						row.Find("td").Each(func(tdidx int, td *goquery.Selection) {
 							content, _ := td.Html()
@@ -283,70 +287,55 @@ func ParseListOfIphoneModelsTable(client *http.Client) []Device {
 							}
 							modelidx++
 						})
-					} else if firstcoltext == "Initial release operating system" {
+					} else if strings.EqualFold(firstcoltext, "operating system") && strings.EqualFold(secondcoltext, "initial") {
+						log.Debugf("[ParseListOfIphoneModelsTable] table[%d] Parsing iOS release range row", tableidx)
 						modelidx := 0
-						row.Find("td").Each(func(tdidx int, td *goquery.Selection) {
-							verregex := regexp.MustCompile("[0-9]+.[0-9]+(?:.[0-9]+)?")
-							content := td.Text()
-							verstr := verregex.FindString(content)
-							if err != nil {
-								log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex match error: %s", firstcoltext, err.Error())
-							}
-							if len(verstr) == 0 {
-								log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex no match: %s", firstcoltext, content)
-							}
-							minos, err := version.OSVersionFromString(verstr)
-							if err != nil {
-								log.Warnf("[ParseListOfIphoneModelsTable] '%s' Error parsing min OS version from string: %s", firstcoltext, err.Error())
-								return
-							}
-							colspan := 1
-							colspanstr, exists := td.Attr("colspan")
-							if exists {
-								colspan, _ = strconv.Atoi(colspanstr)
-							}
-							for i := 0; i < colspan; i++ {
-								devices[modelidx].MinOS = minos
-								modelidx++
-							}
-						})
-					} else if firstcoltext == "Latest release operating system" {
-						modelidx := 0
-						row.Find("td").Each(func(tdidx int, td *goquery.Selection) {
-							verregex := regexp.MustCompile("[0-9]+.[0-9]+(?:.[0-9]+)?")
-							content := td.Text()
-							verstr := verregex.FindString(content)
-							if err != nil {
-								log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex match error: %s", firstcoltext, err.Error())
-							}
-							if len(verstr) == 0 {
-								log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex no match: %s", firstcoltext, content)
-							}
-							maxos, err := version.OSVersionFromString(verstr)
-							if err != nil {
-								log.Warnf("[ParseListOfIphoneModelsTable] '%s' Error parsing min OS version from string: %s", firstcoltext, err.Error())
-								return
-							}
-							colspan := 1
-							colspanstr, exists := td.Attr("colspan")
-							if exists {
-								colspan, _ = strconv.Atoi(colspanstr)
-							}
-							for i := 0; i < colspan; i++ {
-								devices[modelidx].MaxOS = maxos
-								modelidx++
-							}
-						})
-					}
-				}
+						initialRow := row
+						latestRow := row.Next()
+						rangeRows := []*goquery.Selection{initialRow, latestRow}
+						for ridx := 0; ridx < len(rangeRows); ridx++ {
+							theRow := rangeRows[ridx]
+							theRow.Find("td").Each(func(tdidx int, td *goquery.Selection) {
+								verregex := regexp.MustCompile("[0-9]+.[0-9]+(?:.[0-9]+)?")
+								content := td.Text()
+								verstr := verregex.FindString(content)
+								if err != nil {
+									log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex match error: %s", firstcoltext, err.Error())
+								}
+								if len(verstr) == 0 {
+									log.Fatalf("[ParseListOfIphoneModelsTable] '%s' regex no match: %s", firstcoltext, content)
+								}
+								oslimit, err := version.OSVersionFromString(verstr)
+								if err != nil {
+									log.Warnf("[ParseListOfIphoneModelsTable] '%s' Error parsing min OS version from string: %s", firstcoltext, err.Error())
+									return
+								}
+								colspan := 1
+								colspanstr, exists := td.Attr("colspan")
+								if exists {
+									colspan, _ = strconv.Atoi(colspanstr)
+								}
+								for i := 0; i < colspan; i++ {
+									if ridx == 0 {
+										devices[modelidx].MinOS = oslimit
+									}else {
+										devices[modelidx].MaxOS = oslimit
+									}
+									modelidx++
+								}
+							})
+							modelidx = 0
+						}
+					} // else unhandled row
+				} // end of rows loop
 				gDevices = append(gDevices, devices...)
 			} else {
-				log.Debugf("[ParseListOfIphoneModelsTable] First row in table %d does not start with 'Models' cell: %s", tableidx, firstRowFirstCellText)
+				log.Debugf("[ParseListOfIphoneModelsTable] First row in table %d does not start with 'Model | iPhone*' cells: %s", tableidx, firstRowFirstCellText)
 				return
 			}
 		})
 		for _, dev := range gDevices {
-			log.Debugf("[ParseListOfIphoneModelsTable] Device: ", dev.String())
+			log.Debugf("[ParseListOfIphoneModelsTable] Device: %s", dev.String())
 		}
 		return gDevices
 	}
