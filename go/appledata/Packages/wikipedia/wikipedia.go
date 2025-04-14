@@ -1,8 +1,8 @@
 package wikipedia
 
 import (
+	"appledata/packages/version"
 	"fmt"
-	"iosdata/Packages/version"
 	"net/http"
 	"os"
 	"regexp"
