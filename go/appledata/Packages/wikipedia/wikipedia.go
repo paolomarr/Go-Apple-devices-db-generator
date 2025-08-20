@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"time"
+
 	"github.com/PuerkitoBio/goquery"
 	"github.com/dlclark/regexp2"
 	htmltable "github.com/nfx/go-htmltable"
@@ -31,6 +33,33 @@ func WikiPageURL(urlstr string) string {
 	path := leadingSlash.ReplaceAllString(urlstr, "")
 
 	return fmt.Sprintf("%s/%s", base, path)
+}
+
+func httpGetWithRetry(client *http.Client, url string, maxRetries int, defaultWait time.Duration) (*http.Response, error) {
+    for attempt := 0; attempt <= maxRetries; attempt++ {
+        res, err := client.Get(url)
+        if err != nil {
+            return nil, err
+        }
+        if res.StatusCode != 429 {
+            return res, nil
+        }
+        // Handle 429: Too Many Requests
+        wait := defaultWait
+        if retryAfter := res.Header.Get("Retry-After"); retryAfter != "" {
+            if secs, err := strconv.Atoi(retryAfter); err == nil {
+                wait = time.Duration(secs) * time.Second
+            } else {
+				log.Warnf("Failed to parse header value 'Retry-After: %s' to an integer value. Using default wait period.", retryAfter)
+			}
+        } else {
+			log.Warnf("No 'Retry-After' header in response, using default wait period.")
+		}
+        log.Warnf("Received 429 for %s, waiting %v before retrying (attempt %d/%d)", url, wait, attempt+1, maxRetries)
+        res.Body.Close()
+        time.Sleep(wait)
+    }
+    return nil, fmt.Errorf("max retries exceeded for %s", url)
 }
 
 var WikiBaseUrl = WikiBase()
@@ -80,7 +109,8 @@ func (d Device) String() string {
 }
 func ParseSystemOnChips(client *http.Client) ([]Cpu, error) {
 	var IOSSystemOnChipsPage string = WikiPageURL("List_of_iPhone_models#iPhone_systems-on-chips")
-	res, err := client.Get(IOSSystemOnChipsPage)
+	res, err := httpGetWithRetry(client, IOSSystemOnChipsPage, 3, 60* time.Second)
+	// res, err := client.Get(IOSSystemOnChipsPage)
 	if err != nil {
 		log.Fatalf("[ParseSystemOnChips] %s", err.Error())
 	}
@@ -113,7 +143,8 @@ func ParseSystemOnChips(client *http.Client) ([]Cpu, error) {
 func ParseiOSVersionHistory(client *http.Client) []version.OSVersion {
 	var IOSVersionHistoryURL string = WikiPageURL("wiki/IOS_version_history")
 	log.Debugf("[ParseiOSVersionHistory] Fetching data (GET) from %s", IOSVersionHistoryURL)
-	res, err := client.Get(IOSVersionHistoryURL)
+	res, err := httpGetWithRetry(client, IOSVersionHistoryURL, 3, 60 * time.Second)
+	// res, err := client.Get(IOSVersionHistoryURL)
 	if err != nil {
 		log.Fatalf("[ParseiOSVersionHistory] %s", err.Error())
 	}
@@ -153,7 +184,8 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 	// take all .wikitable that have row(0).th(0).textContent == Version
 	// then take all first td,th/textContent, matching regex \d+.\d+.\d+
 	// trim any <sup>.*</sup footnotes
-	res, err := client.Get(page)
+	res, err := httpGetWithRetry(client, page, 3, 60 * time.Second)
+	// res, err := client.Get(page)
 	if err != nil {
 		log.Fatal("[ParseSingleIOSVersionPage] %s", err.Error())
 	}
@@ -220,6 +252,8 @@ func ParseListOfIphoneModelsTable(client *http.Client) []Device {
 	} else {
 		var gDevices []Device
 		doc.Find(".wikitable").Each(func(tableidx int, table *goquery.Selection) {
+			// var tableTitle string = table.Parent().PrevAllFiltered(".mw-heading3").First().Text()
+			// log.Infof("[ParseListOfIphoneModelsTable] Found table %d with title: %s", tableidx, tableTitle)
 			var devices []Device
 			log.Debugf("[ParseListOfIphoneModelsTable] Parsing .wikitable %d", tableidx)
 			rows := table.Find("tr")
