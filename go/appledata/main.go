@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"net/http"
 	"os"
 	"path"
@@ -12,14 +11,40 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func localHTTTPClient() *http.Client {
-	tlsconfig := tls.Config{InsecureSkipVerify: true}
-	tr := &http.Transport{
-		TLSClientConfig: &tlsconfig,
-	}
-	client := &http.Client{Transport: tr}
-	return client
+// Wikipedia networking specific functions
+func createWikipediaClient() *http.Client {                                                                                                                                                                                                                   
+    client := &http.Client{}                                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                                              
+    // Create a custom transport that adds the User-Agent header                                                                                                                                                                                              
+    transport := &http.Transport{}                                                                                                                                                                                                                            
+    client.Transport = &userAgentTransport{                                                                                                                                                                                                                   
+        Transport: transport,                                                                                                                                                                                                                                 
+        UserAgent: "AppleDataBot/1.0 (https://github.com/paolomarr/Go-Apple-devices-db-generator; paolo.marchetti.it@gmail.com) Go-http-client/1.1",                                                                                                                                  
+    }                                                                                                                                                                                                                                                         
+                                                                                                                                                                                                                                                              
+    return client                                                                                                                                                                                                                                             
+}                                                                                                                                                                                                                                                             
+                                                                                                                                                                                                                                                              
+// Custom transport to add User-Agent header                                                                                                                                                                                                                  
+type userAgentTransport struct {                                                                                                                                                                                                                              
+    Transport http.RoundTripper                                                                                                                                                                                                                               
+    UserAgent string                                                                                                                                                                                                                                          
+}                                                                                                                                                                                                                                                             
+                                                                                                                                                                                                                                                              
+func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {                                                                                                                                                                           
+    req.Header.Set("User-Agent", t.UserAgent)                                                                                                                                                                                                                 
+    return t.Transport.RoundTrip(req)                                                                                                                                                                                                                         
 }
+
+// func localHTTTPClient() *http.Client {
+// 	tlsconfig := tls.Config{InsecureSkipVerify: true}
+// 	tr := &http.Transport{
+// 		TLSClientConfig: &tlsconfig,
+// 	}
+// 	client := &http.Client{Transport: tr}
+// 	return client
+// }
+
 func logrusInit() {
 	lvl, ok := os.LookupEnv("LOG_LEVEL")
 	// LOG_LEVEL not set, let's default to info
@@ -36,7 +61,7 @@ func logrusInit() {
 }
 
 func getDevices() []wikipedia.Device {
-	var devices []wikipedia.Device = wikipedia.ParseListOfIphoneModelsTable(localHTTTPClient())
+	var devices []wikipedia.Device = wikipedia.ParseListOfIphoneModelsTable(createWikipediaClient())
 	for _, device := range devices {
 		for i := 0; i < len(device.Codenames); i++ {
 			cd := device.Codenames[i]
@@ -47,7 +72,7 @@ func getDevices() []wikipedia.Device {
 }
 
 func getVersions() {
-	for _, version := range wikipedia.ParseiOSVersionHistory2(localHTTTPClient()) {
+	for _, version := range wikipedia.ParseiOSVersionHistory2(createWikipediaClient()) {
 		dbtools.DBAddOSVersion(version)
 	}
 }
@@ -70,8 +95,8 @@ func main() {
 		log.Fatalf("Unable to create build directory at path %s: %s", dbpath, perr.Error())
 	}
 	dbtools.DBInit(dbpath)
-	// cpus, err := theiphonewiki.ParseProcessorsPages(localHTTTPClient())
-	cpus, err := wikipedia.ParseSystemOnChips(localHTTTPClient())
+	// cpus, err := theiphonewiki.ParseProcessorsPages(createWikipediaClient())
+	cpus, err := wikipedia.ParseSystemOnChips(createWikipediaClient())
 	if err != nil {
 		log.Fatalf("Unable to parse CPUs from theiphonewiki page")
 	}

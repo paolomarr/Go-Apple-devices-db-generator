@@ -8,3 +8,4 @@ target/
 .vscode/
 .m2
 go/appledata/appledata
+.aider*
