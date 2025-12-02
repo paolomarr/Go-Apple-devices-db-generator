@@ -82,6 +82,7 @@ var IOSVersionPages []string = []string{
 	"IPhone_OS_16",
 	"IOS_17",
 	"IOS_18",
+	"IOS_26",
 }
 
 type TableCPU struct {
