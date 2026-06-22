@@ -182,7 +182,7 @@ func ParseiOSVersionHistory(client *http.Client) []version.OSVersion {
 	}
 	return versions
 }
-func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVersion {
+func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVersion {
 	// take all .wikitable that have row(0).th(0).textContent == Version
 	// then take all first td,th/textContent, matching regex \d+.\d+.\d+
 	// trim any <sup>.*</sup footnotes
@@ -195,7 +195,7 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 	if res.StatusCode != 200 {
 		log.Fatalf("[ParseSingleIOSVersionPage] page[%s] HTTP status code error: %d %s", page, res.StatusCode, res.Status)
 	}
-	var versions []version.OSVersion
+	var versions []version.IOSVersion
 	// Load the HTML document
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
@@ -205,13 +205,22 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 		supregex := regexp.MustCompile("<sup>.*</sup>")
 		brregex := regexp.MustCompile("<br/?>")
 		doc.Find(".wikitable").Each(func(tableidx int, table *goquery.Selection) {
+			iosVersion := version.IOSVersion{}
 			firstHeaderCellContent := table.Find("tr").First().Find("th").First().Text()
 			if strings.TrimSpace(firstHeaderCellContent) == "Version" { // this is the right table
+				buildNumberRowsLeft := 1
 				table.Find("tr").Each(func(rowidx int, row *goquery.Selection) {
 					if rowidx == 0 {
 						return
 					}
-					firstCellInnerHtml, _ := row.Find("td,th").First().Html()
+					firstcell := row.Find("th, td").First()
+					// Some table have inner header rows. They can be spotted from the colspan > 1 property
+					if firstcell.AttrOr("colspan", "1") != "1" {
+						// simply discard the row
+						return
+					}
+					firstCellInnerHtml, _ := firstcell.Html()
+					versionStringMatched := false
 					// on latest iOS tables (e.g. 18/26) the version header cell has a data-sort-value property. Let's try and get that, as 
 					// in those tables the header cell content may be more complex than the simple "X.Y.Z" string.
 					dataSortValueAttr, exists := row.Find("th").First().Attr("data-sort-value")
@@ -222,8 +231,9 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 							if err != nil {
 								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from 'data-sort-value' attr string %s", page, dataSortValueAttr)
 							}else {
-								log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending version %s", page, verobj.String())
-								versions = append(versions, verobj)
+								iosVersion.Version = verobj
+								versionStringMatched = true
+								// versions = append(versions, verobj)
 							}
 						}
 					} else {
@@ -237,13 +247,61 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 								if err != nil {
 									log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from cell content string %s", page, rawversion)
 								}else {
-									log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending version %s", page, verobj.String())
-									versions = append(versions, verobj)
+									iosVersion.Version = verobj
+									versionStringMatched = true
+									// versions = append(versions, verobj)
 								}
-							}else {
-								log.Errorf("[ParseSingleIOSVersionPage] page[%s] No version match for raw string %s", page, rawversion)
 							}
+							// else {
+							// 	log.Errorf("[ParseSingleIOSVersionPage] page[%s] No version match for raw string %s", page, rawversion)
+							// }
 						}	
+					}
+					// try and fetch build numbers, too
+					rowspanAttr, exists := firstcell.Attr("rowspan")
+					buildNumberCellContent := ""
+					if versionStringMatched {
+						buildNumberCellContent, _ = firstcell.Next().Html()
+						nosup := supregex.ReplaceAllString(buildNumberCellContent, "")
+						buildNumbers := brregex.Split(nosup, -1)
+						for _, buildNumber := range buildNumbers {
+							bnobj, err := version.BuildNumberFromString(buildNumber)
+							if err != nil {
+								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s", page, buildNumber)
+							}else {
+								iosVersion.Builds = append(iosVersion.Builds, bnobj)
+							}
+						}
+						if exists { // multiple build number rows for this version
+							buildNumberRowsLeft, _ = strconv.Atoi(rowspanAttr)
+						} else {
+							buildCardinalityString := "one-build"
+							if len(iosVersion.Builds) > 1 {
+								buildCardinalityString = "multi-build"
+							}
+							log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending %s version %s", page, buildCardinalityString, iosVersion.String())
+							versions = append(versions, iosVersion)
+							iosVersion = version.IOSVersion{}
+							return
+						}
+					}
+					buildNumberCellContent, _ = firstcell.Html()
+					nosup := supregex.ReplaceAllString(buildNumberCellContent, "")
+					buildNumbers := brregex.Split(nosup, -1)
+					for _, buildNumber := range buildNumbers {
+						bnobj, err := version.BuildNumberFromString(buildNumber)
+						if err != nil {
+							log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s", page, buildNumber)
+						}else {
+							iosVersion.Builds = append(iosVersion.Builds, bnobj)
+						}
+					}
+					buildNumberRowsLeft--
+					if buildNumberRowsLeft == 0 {
+						log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending multi-build version %s", page, iosVersion.String())
+						versions = append(versions, iosVersion)
+						iosVersion = version.IOSVersion{}
+						return
 					}
 				})
 			}
@@ -252,8 +310,8 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.OSVer
 	log.Infof("[ParseSingleIOSVersionPage] page[%s] versions[%d]", page, len(versions))
 	return versions
 }
-func ParseiOSVersionHistory2(client *http.Client) []version.OSVersion {
-	var versions []version.OSVersion
+func ParseiOSVersionHistory2(client *http.Client) []version.IOSVersion {
+	var versions []version.IOSVersion
 	for _, pagepath := range IOSVersionPages {
 		page := WikiPageURL(pagepath)
 		versions = append(versions, ParseSingleIOSVersionPage(page, client)...)
