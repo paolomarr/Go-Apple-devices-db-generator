@@ -260,14 +260,16 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 					// try and fetch build numbers, too
 					rowspanAttr, exists := firstcell.Attr("rowspan")
 					buildNumberCellContent := ""
+					var buildNumberCell *goquery.Selection
 					if versionStringMatched {
-						buildNumberCellContent, _ = firstcell.Next().Html()
+						buildNumberCell = firstcell.Next()
+						buildNumberCellContent, _ = buildNumberCell.Html()
 						nosup := supregex.ReplaceAllString(buildNumberCellContent, "")
 						buildNumbers := brregex.Split(nosup, -1)
 						for _, buildNumber := range buildNumbers {
 							bnobj, err := version.BuildNumberFromString(buildNumber)
 							if err != nil {
-								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s", page, buildNumber)
+								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s (first row)", page, buildNumber)
 							}else {
 								iosVersion.Builds = append(iosVersion.Builds, bnobj)
 							}
@@ -291,7 +293,7 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 					for _, buildNumber := range buildNumbers {
 						bnobj, err := version.BuildNumberFromString(buildNumber)
 						if err != nil {
-							log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s", page, buildNumber)
+							log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s (next-to-first row)", page, buildNumber)
 						}else {
 							iosVersion.Builds = append(iosVersion.Builds, bnobj)
 						}
