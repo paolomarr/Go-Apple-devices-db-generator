@@ -65,14 +65,6 @@ func httpGetWithRetry(client *http.Client, url string, maxRetries int, defaultWa
 var WikiBaseUrl = WikiBase()
 
 var IOSVersionPages []string = []string{
-	"IPhone_OS_2",
-	"IPhone_OS_3",
-	"IPhone_OS_4",
-	"IPhone_OS_5",
-	"IPhone_OS_6",
-	"IPhone_OS_7",
-	"IPhone_OS_8",
-	"IPhone_OS_9",
 	"IPhone_OS_10",
 	"IPhone_OS_11",
 	"IPhone_OS_12",
@@ -231,31 +223,27 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 							if err != nil {
 								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from 'data-sort-value' attr string %s", page, dataSortValueAttr)
 							}else {
+								versionStringMatched = true
+								iosVersion.Version = verobj
+							}
+						}
+					} else {
+						rawversion := supregex.ReplaceAllString(firstCellInnerHtml, "")
+						version_match := verregex.FindString(rawversion)
+						if len(version_match) > 0 {
+							verobj, err := version.OSVersionFromString(version_match)
+							if err != nil {
+								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from cell content string %s", page, rawversion)
+							}else {
 								iosVersion.Version = verobj
 								versionStringMatched = true
 								// versions = append(versions, verobj)
 							}
 						}
-					} else {
-						firstCellInnerHtmlNoSup := supregex.ReplaceAllString(firstCellInnerHtml, "")
-						// some cell has two or more version values, separated by <br>
-						firstCellVersions := brregex.Split(firstCellInnerHtmlNoSup, -1)
-						for _, rawversion := range firstCellVersions {
-							version_match := verregex.FindString(rawversion)
-							if len(version_match) > 0 {
-								verobj, err := version.OSVersionFromString(version_match)
-								if err != nil {
-									log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from cell content string %s", page, rawversion)
-								}else {
-									iosVersion.Version = verobj
-									versionStringMatched = true
-									// versions = append(versions, verobj)
-								}
-							}
 							// else {
 							// 	log.Errorf("[ParseSingleIOSVersionPage] page[%s] No version match for raw string %s", page, rawversion)
 							// }
-						}	
+						
 					}
 					// try and fetch build numbers, too
 					rowspanAttr, exists := firstcell.Attr("rowspan")
