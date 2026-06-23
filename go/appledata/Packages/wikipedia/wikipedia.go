@@ -253,13 +253,7 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 					}else {
 						if buildNumberRowsLeft > 0 {
 							buildNumberCell = firstcell
-						} 
-						// else {
-						// 	log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending multi-build version %s", page, iosVersion.String())
-						// 	versions = append(versions, iosVersion)
-						// 	iosVersion = version.IOSVersion{}
-						// 	return	
-						// }
+						}
 					}
 					buildNumberCellContent, _ := buildNumberCell.Html()
 					nosup := supregex.ReplaceAllString(buildNumberCellContent, "")

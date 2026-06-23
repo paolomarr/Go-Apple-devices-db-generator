@@ -73,7 +73,8 @@ func getDevices() []wikipedia.Device {
 
 func getVersions() {
 	for _, version := range wikipedia.ParseiOSVersionHistory2(createWikipediaClient()) {
-		dbtools.DBAddOSVersion(version.Version)
+		// dbtools.DBAddOSVersion(version.Version)
+		dbtools.DBAddIOSVersion(version)
 	}
 }
 

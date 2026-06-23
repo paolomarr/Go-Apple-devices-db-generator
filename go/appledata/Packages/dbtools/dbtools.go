@@ -34,6 +34,12 @@ type OperatingSystem struct {
 	VersionY int       `gorm:"uniqueIndex:unique_version_idx"`
 	VersionZ int       `gorm:"uniqueIndex:unique_version_idx"`
 	Models   []*Device `gorm:"many2many:device_os;"`
+	BuildNumbers []BuildNumber `gorm:"foreignKey:OperatingSystemRef"`
+}
+type BuildNumber struct {
+	ID       uint `gorm:"primaryKey"`
+	OperatingSystemRef  uint
+	BuildNumber string `gorm:"unique"`
 }
 type V_OS_model struct {
 	osver_x  string `gorm:"column:osver_x`
@@ -43,7 +49,12 @@ type V_OS_model struct {
 	codename string `gorm:"column:codename`
 	cpu_abi  string `gorm:"column:cpu_abi`
 }
-
+type V_OS_build struct {
+	osver_x  string `gorm:"column:osver_x`
+	osver_y  string `gorm:"column:osver_y`
+	osver_z  string `gorm:"column:osver_z`
+	build    string `gorm:"column:build`
+}
 func DBInit(dbbasepath string) {
 	var err error
 
@@ -56,29 +67,13 @@ func DBInit(dbbasepath string) {
 	DBRef.AutoMigrate(&AppleProcessor{})
 	DBRef.AutoMigrate(&Device{})
 	DBRef.AutoMigrate(&OperatingSystem{})
-
+	DBRef.AutoMigrate(&BuildNumber{})
+	
 	var earlyCPUs = []AppleProcessor{
 		{Code: "S5L8900", Label: "Samsung S5L8900"},
 		{Code: "S5L8920", Label: "Samsung S5PC100"},
 	}
 	DBRef.Create(&earlyCPUs)
-
-	// Wikipedia's iOS10 page does not have the "Version history" section like other pages do
-	// We have to initialise iOS10 versions manually
-	var ios10versions = []OperatingSystem{
-		{Name: "ios", VersionX: 10, VersionY: 0, VersionZ: 1},
-		{Name: "ios", VersionX: 10, VersionY: 0, VersionZ: 2},
-		{Name: "ios", VersionX: 10, VersionY: 1, VersionZ: 0},
-		{Name: "ios", VersionX: 10, VersionY: 1, VersionZ: 1},
-		{Name: "ios", VersionX: 10, VersionY: 2, VersionZ: 0},
-		{Name: "ios", VersionX: 10, VersionY: 2, VersionZ: 1},
-		{Name: "ios", VersionX: 10, VersionY: 3, VersionZ: 0},
-		{Name: "ios", VersionX: 10, VersionY: 3, VersionZ: 1},
-		{Name: "ios", VersionX: 10, VersionY: 3, VersionZ: 2},
-		{Name: "ios", VersionX: 10, VersionY: 3, VersionZ: 3},
-		{Name: "ios", VersionX: 10, VersionY: 3, VersionZ: 4},
-	}
-	DBRef.Create(&ios10versions)
 
 	DBRef.Exec(`DROP VIEW IF EXISTS v_os_model;
 	CREATE VIEW v_os_model AS 
@@ -87,6 +82,12 @@ func DBInit(dbbasepath string) {
 	JOIN devices md ON md.id = do.device_id 
     JOIN apple_processors ap on ap.id = md.cpu_id
 	JOIN operating_systems os ON os.id = do.operating_system_id`)
+
+	DBRef.Exec(`DROP VIEW IF EXISTS v_os_build;
+	CREATE VIEW v_os_build AS 
+	SELECT os.version_x, os.version_y, os.version_z, bn.build_number
+	FROM build_numbers bn 
+	JOIN operating_systems os ON os.id = bn.operating_system_ref`)
 }
 
 func DBFlush() {
@@ -126,6 +127,16 @@ func DBUpdateCPU(code string, label string) {
 	DBRef.Where(AppleProcessor{Code: code}).Assign(AppleProcessor{Label: label}).FirstOrCreate(&appproc)
 	log.Infof("Adding/updating processor %s (%s)", appproc.Label, appproc.Code)
 }
+func DBAddIOSVersion(osVerObject version.IOSVersion) {
+	var operatingsystem = OperatingSystem{VersionX: osVerObject.Version.X, VersionY: osVerObject.Version.Y, VersionZ: osVerObject.Version.Z}
+	DBRef.Clauses(clause.OnConflict{DoNothing: true}).Create(&operatingsystem)
+	
+	for _, build := range osVerObject.Builds {
+		var buildNumber = BuildNumber{BuildNumber: build.String()}
+		DBRef.Model(&operatingsystem).Association("BuildNumbers").Append(&buildNumber)
+	}
+}
+// DEPRECATED
 func DBAddOSVersion(osVerObject version.OSVersion) {
 	var operatingsystem = OperatingSystem{VersionX: osVerObject.X, VersionY: osVerObject.Y, VersionZ: osVerObject.Z}
 	DBRef.Clauses(clause.OnConflict{DoNothing: true}).Create(&operatingsystem)
