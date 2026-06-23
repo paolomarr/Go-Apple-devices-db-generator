@@ -194,7 +194,7 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 		log.Fatal(err)
 	} else {
 		verregex := regexp.MustCompile(`[0-9]+\.[0-9]+(?:\.[0-9]+)?`)
-		supregex := regexp.MustCompile("<sup>.*</sup>")
+		supregex := regexp.MustCompile(`<sup(?: .+)?>.*</sup>`)
 		brregex := regexp.MustCompile("<br/?>")
 		doc.Find(".wikitable").Each(func(tableidx int, table *goquery.Selection) {
 			iosVersion := version.IOSVersion{}
@@ -225,6 +225,7 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 							}else {
 								versionStringMatched = true
 								iosVersion.Version = verobj
+								log.Debugf("[ParseSingleIOSVersionPage] page[%s] row[%d] Parsed version from 'data-sort-value' attr string %s", page, rowidx, dataSortValueAttr)
 							}
 						}
 					} else {
@@ -235,62 +236,51 @@ func ParseSingleIOSVersionPage(page string, client *http.Client) []version.IOSVe
 							if err != nil {
 								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing version from cell content string %s", page, rawversion)
 							}else {
-								iosVersion.Version = verobj
 								versionStringMatched = true
-								// versions = append(versions, verobj)
+								iosVersion.Version = verobj
+								log.Debugf("[ParseSingleIOSVersionPage] page[%s] row[%d] Parsed version from cell content %s", page, rowidx, rawversion)
 							}
 						}
-							// else {
-							// 	log.Errorf("[ParseSingleIOSVersionPage] page[%s] No version match for raw string %s", page, rawversion)
-							// }
-						
 					}
-					// try and fetch build numbers, too
-					rowspanAttr, exists := firstcell.Attr("rowspan")
-					buildNumberCellContent := ""
+					// fetch build numbers
 					var buildNumberCell *goquery.Selection
 					if versionStringMatched {
-						buildNumberCell = firstcell.Next()
-						buildNumberCellContent, _ = buildNumberCell.Html()
-						nosup := supregex.ReplaceAllString(buildNumberCellContent, "")
-						buildNumbers := brregex.Split(nosup, -1)
-						for _, buildNumber := range buildNumbers {
-							bnobj, err := version.BuildNumberFromString(buildNumber)
-							if err != nil {
-								log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s (first row)", page, buildNumber)
-							}else {
-								iosVersion.Builds = append(iosVersion.Builds, bnobj)
-							}
-						}
+						rowspanAttr, exists := firstcell.Attr("rowspan")
 						if exists { // multiple build number rows for this version
 							buildNumberRowsLeft, _ = strconv.Atoi(rowspanAttr)
-						} else {
-							buildCardinalityString := "one-build"
-							if len(iosVersion.Builds) > 1 {
-								buildCardinalityString = "multi-build"
-							}
-							log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending %s version %s", page, buildCardinalityString, iosVersion.String())
-							versions = append(versions, iosVersion)
-							iosVersion = version.IOSVersion{}
-							return
 						}
+						buildNumberCell = firstcell.Next()
+					}else {
+						if buildNumberRowsLeft > 0 {
+							buildNumberCell = firstcell
+						} 
+						// else {
+						// 	log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending multi-build version %s", page, iosVersion.String())
+						// 	versions = append(versions, iosVersion)
+						// 	iosVersion = version.IOSVersion{}
+						// 	return	
+						// }
 					}
-					buildNumberCellContent, _ = firstcell.Html()
+					buildNumberCellContent, _ := buildNumberCell.Html()
 					nosup := supregex.ReplaceAllString(buildNumberCellContent, "")
 					buildNumbers := brregex.Split(nosup, -1)
 					for _, buildNumber := range buildNumbers {
+						if strings.TrimSpace(buildNumber) == "" {
+							continue
+						}
 						bnobj, err := version.BuildNumberFromString(buildNumber)
 						if err != nil {
-							log.Errorf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s (next-to-first row)", page, buildNumber)
+							log.Fatalf("[ParseSingleIOSVersionPage] page[%s] Error parsing build number from cell content string %s (next-to-first row): %s", page, buildNumber, err.Error())
 						}else {
 							iosVersion.Builds = append(iosVersion.Builds, bnobj)
 						}
 					}
 					buildNumberRowsLeft--
 					if buildNumberRowsLeft == 0 {
-						log.Debugf("[ParseSingleIOSVersionPage] page[%s] Appending multi-build version %s", page, iosVersion.String())
+						log.Debugf("[ParseSingleIOSVersionPage] page[%s] row[%d] Appending version %s", page, rowidx, iosVersion.String())
 						versions = append(versions, iosVersion)
 						iosVersion = version.IOSVersion{}
+						buildNumberRowsLeft = 1
 						return
 					}
 				})
